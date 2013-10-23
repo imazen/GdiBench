@@ -12,31 +12,22 @@ using System.Threading.Tasks;
 
 namespace GdiBench
 {
+
+
     class Program
     {
         static void Main(string[] args)
         {
             Stopwatch decode = new Stopwatch();
 
-            //Console.WriteLine("Measure Jpeg decoding");
+            //Load jpeg into reusable byte array
             var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("GdiBench.mountain-jpg.jpg");
             var ms = new MemoryStream();
             stream.CopyTo(ms);
             var bytes = ms.ToArray();
 
-            //MeasureOperation(delegate(object input, Stopwatch sw)
-            //{
-            //    var readStream = new MemoryStream((byte[])input);
-            //    sw.Start();
-            //    using (var bit = System.Drawing.Bitmap.FromStream(readStream, false, true))
-            //    {
-            //        sw.Stop();
-            //    }
-                
-            //}, bytes);
-
             Console.WriteLine("Measure DrawImage");
-            MeasureOperation(delegate(object input, Stopwatch sw)
+            MeasureOperation(delegate(object input, TimeSegment time)
             {
                 var readStream = new MemoryStream((byte[])input);
 
@@ -51,64 +42,121 @@ namespace GdiBench
                     g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
                     g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
                     g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                    sw.Start();
+                    time.MarkStart();
                     
                     g.DrawImage(bit, new Point[] { new Point(0, 0), new Point(500, 0), new Point(0, 500) },
                         new Rectangle(0, 0, bit.Width, bit.Height), GraphicsUnit.Pixel, attrs);
-                    sw.Stop();
+                    time.MarkStop();
                 }
 
             }, bytes);
             Console.ReadKey();
         }
 
-        static void MeasureOperation(Action<object, Stopwatch> op, object input)
+        static void MeasureOperation(Action<object, TimeSegment> op, object input)
         {
+            //Throwaway run for warmup
             var throwaway = TimeOperation(op, 1, input);
-            Console.WriteLine("Throwaway run " + throwaway.First() + "ms");
-            foreach(var threads in new int[]{2, 4,8,16,32,64, 1}){
-                Stopwatch real = new Stopwatch();
-                real.Start();
-                var set = TimeOperation(op, threads, input);
-                real.Stop();
-                Console.WriteLine(threads + " parallel threads: Real:" + real.ElapsedMilliseconds +
-                    " Active:" + set.Sum() +  " Avg:" + set.Average() + " Min:" + set.Min() + " Max: " + set.Max());
+            Console.WriteLine("Throwaway run " + throwaway.First().Milliseconds + "ms");
 
-                real.Restart();
+            foreach(var threads in new int[]{2, 4,8,16,32,64, 1}){
+
+                //Time in parallel
+                var wallClock = Stopwatch.StartNew();
+                var parallel = TimeOperation(op, threads, input);
+                wallClock.Stop();
+
+                //Convert to durations and deduplicate for a total
+                var parallelDurations = parallel.ConvertAll<double>((s) => s.Milliseconds);
+                var deduped = DeduplicateTime(parallel);
+
+                Console.WriteLine(threads + " parallel threads: Wall time:" + wallClock.ElapsedMilliseconds +
+                    " Active:" + Math.Round(deduped) + " Avg  time:" + Math.Round(deduped / threads) + " Min:" + parallelDurations.Min() + " Max: " + parallelDurations.Max());
+
+                
                 var serial = new ConcurrentStack<long>();
+                wallClock.Restart();
                 for (var i = 0; i < threads; i++)
                 {
-                    var per = new Stopwatch();
+                    var per = new TimeSegment();
                     op.Invoke(input, per);
-                    serial.Push(per.ElapsedMilliseconds);
+                    serial.Push((long)per.Milliseconds);
                 }
-                real.Stop();
+                wallClock.Stop();
 
-                Console.WriteLine(threads + " serialized runs: Real:" + real.ElapsedMilliseconds +
-                    " Active:" + serial.Sum() + " Avg:" + serial.Average() + " Min:" + serial.Min() + " Max: " + serial.Max());
+                Console.WriteLine(threads + " serialized runs: Wall time:" + wallClock.ElapsedMilliseconds +
+                    " Active:" + serial.Sum() + " Avg:" + Math.Round(serial.Average()) + " Min:" + serial.Min() + " Max: " + serial.Max());
 
-                Console.WriteLine("Parallel is ms slower than serial: " + (set.Average() - serial.Average()).ToString());
+
+                Console.WriteLine("Parallel averages " + Math.Round((deduped / threads) - serial.Average()) + "ms slower per run (" + Math.Round(deduped - serial.Sum()) + " total) on " + threads + " threads");
+                Console.WriteLine();
             }
 
         }
 
-        static List<long> TimeOperation(Action<object, Stopwatch> op, int threads, object input)
+        static double DeduplicateTime(List<TimeSegment> times)
         {
+            times = new List<TimeSegment>(times);
+            times.Add(new TimeSegment() { StartTicks = 0, StopTicks = 0 }); //Add accumulator seed
+            times.Sort((a, b) => a.StartTicks.CompareTo(b.StartTicks));
+
+            var result = times.Aggregate(delegate(TimeSegment acc, TimeSegment elem)
+            {
+                
+                //Eliminate overlapping time
+                if (acc.StopTicks > elem.StartTicks) {
+                    elem.StartTicks = Math.Min(elem.StopTicks, acc.StopTicks);
+                }
+                //Aggregate non-redundant time and store last stop position
+                return new TimeSegment(){ 
+                    StartTicks=(acc.StartTicks + elem.StopTicks - elem.StartTicks), 
+                    StopTicks = Math.Max(acc.StopTicks,elem.StopTicks)};
+            });
+            return ((double)result.StartTicks * 1000.0f / Stopwatch.Frequency);
+        }
+
+        public class TimeSegment
+        {
+            public long StartTicks { get; set; }
+            public long StopTicks { get; set; }
+            public void MarkStart()
+            {
+                StartTicks = Stopwatch.GetTimestamp();
+            }
+            public void MarkStop()
+            {
+                StopTicks = Stopwatch.GetTimestamp();
+            }
+
+            public double Milliseconds
+            {
+                get
+                {
+                    return ((StopTicks - StartTicks) * 1000) / Stopwatch.Frequency;
+                }
+            }
+        }
+
+        static List<TimeSegment> TimeOperation(Action<object, TimeSegment> op, int threads, object input)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
             if (threads == 1)
             {
-                var sw = new Stopwatch();
-                op.Invoke(input, sw);
-                return new List<long>(new long[] {sw.ElapsedMilliseconds });
+                var time = new TimeSegment();
+                op.Invoke(input, time);
+                return new List<TimeSegment>(new TimeSegment[] { time });
             }
             else
             {
-                var times = new ConcurrentStack<long>();
+                var times = new ConcurrentStack<TimeSegment>();
                 Parallel.For(0, threads, new Action<int>(delegate(int index)
                 {
-                    GC.Collect();
-                    var sw = new Stopwatch();
-                    op.Invoke(input, sw);
-                    times.Push(sw.ElapsedMilliseconds);
+                    
+                    var time = new TimeSegment();
+                    op.Invoke(input, time);
+                    times.Push(time);
                 }));
                 return times.ToList();
             }
