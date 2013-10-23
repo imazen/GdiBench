@@ -18,8 +18,8 @@ namespace GdiBench
         {
             Stopwatch decode = new Stopwatch();
 
-            //Console.WriteLine("Measure PNG decoding");
-            var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("GdiBench.mountain-png.png");
+            //Console.WriteLine("Measure Jpeg decoding");
+            var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("GdiBench.mountain-jpg.jpg");
             var ms = new MemoryStream();
             stream.CopyTo(ms);
             var bytes = ms.ToArray();
