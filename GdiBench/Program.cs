@@ -22,6 +22,7 @@ namespace GdiBench
             Stopwatch decode = new Stopwatch();
 
             //Load jpeg into reusable byte array
+            //var stream = new MemoryStream(File.ReadAllBytes("large.jpg"));
             var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("GdiBench.mountain-jpg.jpg");
             var ms = new MemoryStream();
             stream.CopyTo(ms);
@@ -33,32 +34,40 @@ namespace GdiBench
             var pngBytes = ImageResizer.ExtensionMethods.StreamExtensions.CopyToBytes(pngStream, true);
 
             Console.WriteLine("Measure new Bitmap(stream,useIcm=true) (jpeg)");
+            var bytesRead = new ConcurrentStack<long>();
             MeasureOperation(delegate(object input, TimeSegment time)
             {
-                var readStream = new MemoryStream((byte[])input);
+                var readStream = new InstrumetedMemoryStream((byte[])input);
+                readStream.BytesRead = 0;
 
                 time.MarkStart();
                 using (var bit = new System.Drawing.Bitmap(readStream,true))
                 {
                     time.MarkStop();
+                    bytesRead.Push(readStream.BytesRead);
                     var test = bit.Width;
                 }
 
             }, bytes);
+            Console.WriteLine("Average bytes read per thread: " + bytesRead.Average().ToString());
 
             Console.WriteLine("Measure Bitmap.FromStream(readStream,true,true) (jpeg)");
+            bytesRead.Clear();
             MeasureOperation(delegate(object input, TimeSegment time)
             {
-                var readStream = new MemoryStream((byte[])input);
+                var readStream = new InstrumetedMemoryStream((byte[])input);
+                readStream.BytesRead = 0;
 
                 time.MarkStart();
                 using (var bit = Bitmap.FromStream(readStream,true,true))
                 {
                     time.MarkStop();
+                    bytesRead.Push(readStream.BytesRead);
                     var test = bit.Width;
                 }
 
             }, bytes);
+            Console.WriteLine("Average bytes read per thread: " + bytesRead.Average().ToString());
 
             Console.WriteLine("Measure Bitmap.FromStream (png)");
             MeasureOperation(delegate(object input, TimeSegment time)
@@ -96,24 +105,33 @@ namespace GdiBench
             Console.WriteLine("Measure DrawImage");
             MeasureOperation(delegate(object input, TimeSegment time)
             {
-                var readStream = new MemoryStream((byte[])input);
+                var readStream = new InstrumetedMemoryStream((byte[])input);
+                readStream.BytesRead = 0;
 
-                using (var bit = new Bitmap(readStream,true))
-                using (var canvas = new Bitmap(500, 500))
-                using (var g = Graphics.FromImage(canvas))
-                using (var attrs = new ImageAttributes() {})
+                using (var bit = new Bitmap(readStream, true))
                 {
-                    attrs.SetWrapMode(System.Drawing.Drawing2D.WrapMode.TileFlipXY);
-                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
-                    g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                    time.MarkStart();
-                    
-                    g.DrawImage(bit, new Point[] { new Point(0, 0), new Point(500, 0), new Point(0, 500) },
-                        new Rectangle(0, 0, bit.Width, bit.Height), GraphicsUnit.Pixel, attrs);
-                    time.MarkStop();
+                    readStream.SleepMsPerReadCall = 50;
+                    readStream.BytesRead = 0;
+
+                    using (var canvas = new Bitmap(500, 500))
+                    using (var g = Graphics.FromImage(canvas))
+                    using (var attrs = new ImageAttributes() { })
+                    {
+                        attrs.SetWrapMode(System.Drawing.Drawing2D.WrapMode.TileFlipXY);
+                        g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
+                        g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+
+
+                        time.MarkStart();
+
+                        g.DrawImage(bit, new Point[] { new Point(0, 0), new Point(500, 0), new Point(0, 500) },
+                            new Rectangle(0, 0, bit.Width, bit.Height), GraphicsUnit.Pixel, attrs);
+                        time.MarkStop();
+                        Debug.Assert(readStream.BytesRead == 0);
+                    }
                 }
 
             }, bytes);
