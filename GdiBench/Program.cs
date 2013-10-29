@@ -26,6 +26,39 @@ namespace GdiBench
             stream.CopyTo(ms);
             var bytes = ms.ToArray();
 
+            Console.WriteLine("Measure Bitmap.FromStream (jpeg)");
+            MeasureOperation(delegate(object input, TimeSegment time)
+            {
+                var readStream = new MemoryStream((byte[])input);
+
+                time.MarkStart();
+                using (var bit = System.Drawing.Bitmap.FromStream(readStream, false, true))
+                {
+                    time.MarkStop();
+                    var test = bit.Width;
+                }
+
+            }, bytes);
+
+            Console.WriteLine("Measure Bitmap.Save (jpeg)");
+            MeasureOperation(delegate(object input, TimeSegment time)
+            {
+                var readStream = new MemoryStream((byte[])input);
+
+                
+                using (var bit = System.Drawing.Bitmap.FromStream(readStream, false, true))
+                using (EncoderParameters p = new EncoderParameters(1))
+                using (var ep = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)90)){
+                    var outStream = new MemoryStream(readStream.Capacity);
+                    p.Param[0] = ep;
+                    time.MarkStart();
+                    bit.Save(outStream, GetImageCodeInfo("image/jpeg"), p);
+                    time.MarkStop();
+                }
+
+            }, bytes);
+
+
             Console.WriteLine("Measure DrawImage");
             MeasureOperation(delegate(object input, TimeSegment time)
             {
@@ -59,7 +92,7 @@ namespace GdiBench
             var throwaway = TimeOperation(op, 1, input);
             Console.WriteLine("Throwaway run " + throwaway.First().Milliseconds + "ms");
 
-            foreach(var threads in new int[]{2, 4,8,16,32,64, 1}){
+            foreach(var threads in new int[]{4,8,32,2}){
 
                 //Time in parallel
                 var wallClock = Stopwatch.StartNew();
@@ -135,6 +168,13 @@ namespace GdiBench
                     return ((StopTicks - StartTicks) * 1000) / Stopwatch.Frequency;
                 }
             }
+        }
+
+        static ImageCodecInfo GetImageCodeInfo(string mimeType) {
+            ImageCodecInfo[] info = ImageCodecInfo.GetImageEncoders();
+            foreach (ImageCodecInfo ici in info)
+                if (ici.MimeType.Equals(mimeType, StringComparison.OrdinalIgnoreCase)) return ici;
+            return null;
         }
 
         static List<TimeSegment> TimeOperation(Action<object, TimeSegment> op, int threads, object input)
