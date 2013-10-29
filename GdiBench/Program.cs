@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ImageResizer;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -26,7 +27,40 @@ namespace GdiBench
             stream.CopyTo(ms);
             var bytes = ms.ToArray();
 
-            Console.WriteLine("Measure Bitmap.FromStream (jpeg)");
+            //Create PNG version via IR
+            MemoryStream pngStream = new MemoryStream();
+            ImageBuilder.Current.Build(new MemoryStream(bytes), pngStream, new Instructions("format=png"));
+            var pngBytes = ImageResizer.ExtensionMethods.StreamExtensions.CopyToBytes(pngStream, true);
+
+            Console.WriteLine("Measure new Bitmap(stream,useIcm=true) (jpeg)");
+            MeasureOperation(delegate(object input, TimeSegment time)
+            {
+                var readStream = new MemoryStream((byte[])input);
+
+                time.MarkStart();
+                using (var bit = new System.Drawing.Bitmap(readStream,true))
+                {
+                    time.MarkStop();
+                    var test = bit.Width;
+                }
+
+            }, bytes);
+
+            Console.WriteLine("Measure Bitmap.FromStream(readStream,true,true) (jpeg)");
+            MeasureOperation(delegate(object input, TimeSegment time)
+            {
+                var readStream = new MemoryStream((byte[])input);
+
+                time.MarkStart();
+                using (var bit = Bitmap.FromStream(readStream,true,true))
+                {
+                    time.MarkStop();
+                    var test = bit.Width;
+                }
+
+            }, bytes);
+
+            Console.WriteLine("Measure Bitmap.FromStream (png)");
             MeasureOperation(delegate(object input, TimeSegment time)
             {
                 var readStream = new MemoryStream((byte[])input);
@@ -38,7 +72,7 @@ namespace GdiBench
                     var test = bit.Width;
                 }
 
-            }, bytes);
+            }, pngBytes);
 
             Console.WriteLine("Measure Bitmap.Save (jpeg)");
             MeasureOperation(delegate(object input, TimeSegment time)
@@ -64,7 +98,7 @@ namespace GdiBench
             {
                 var readStream = new MemoryStream((byte[])input);
 
-                using (var bit = System.Drawing.Bitmap.FromStream(readStream, false, true))
+                using (var bit = new Bitmap(readStream,true))
                 using (var canvas = new Bitmap(500, 500))
                 using (var g = Graphics.FromImage(canvas))
                 using (var attrs = new ImageAttributes() {})
@@ -83,6 +117,19 @@ namespace GdiBench
                 }
 
             }, bytes);
+
+            Console.WriteLine("Measure ImageResizer jpg->500px->jpg");
+            MeasureOperation(delegate(object input, TimeSegment time)
+            {
+                var readStream = new MemoryStream((byte[])input);
+                var outStream = new MemoryStream(readStream.Capacity);
+                time.MarkStart();
+                ImageBuilder.Current.Build(readStream, outStream, new Instructions("width=500&height=500&mode=stretch&format=jpg"));
+                time.MarkStop();
+
+            }, bytes);
+
+
             Console.ReadKey();
         }
 
@@ -92,7 +139,7 @@ namespace GdiBench
             var throwaway = TimeOperation(op, 1, input);
             Console.WriteLine("Throwaway run " + throwaway.First().Milliseconds + "ms");
 
-            foreach(var threads in new int[]{4,8,32,2}){
+            foreach(var threads in new int[]{4,8,32,64,2}){
 
                 //Time in parallel
                 var wallClock = Stopwatch.StartNew();
