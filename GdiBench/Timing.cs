@@ -51,7 +51,7 @@ namespace GdiBench
                 var parallelDurations = parallel.ConvertAll<double>((s) => s.Milliseconds);
                 var deduped = DeduplicateTime(parallel);
 
-                Console.WriteLine("{0} threads; Wall time:{1} Active:{2} Wall avg:{3} Avg:{4} Min:{5} Max:{6}",
+                Console.WriteLine("{0} parallel;  {5}..{6}ms ({4}) each;\t Active:{2} Wall:{1} avg={3}",
                     threads, wallClock.ElapsedMilliseconds, Math.Round(deduped, 1), Math.Round(deduped / threads, 1), Math.Round(parallelDurations.Average(), 1), parallelDurations.Min(), parallelDurations.Max());
 
                 //Time in serial
@@ -59,13 +59,20 @@ namespace GdiBench
                 var serial = TimeOperation(op, 1, threads, input).ConvertAll<double>((s) => s.Milliseconds);
                 wallClock.Stop();
 
-                Console.WriteLine("{0} in sequence; Wall time:{1} Active:{2} Avg:{3} Min:{4} Max:{5}",
+                Console.WriteLine("{0} serial;    {4}..{5}ms ({3}) each;\t Active:{2}  Wall:{1}",
                     threads, wallClock.ElapsedMilliseconds, serial.Sum(), Math.Round(serial.Average(), 1), serial.Min(), serial.Max());
 
 
-                var slowerPerRun = Math.Round((deduped / (double)threads) - serial.Average());
-                var slowerTotal = Math.Round(deduped - serial.Sum());
-                Console.WriteLine("Parallel averages {0}ms slower per run ({1} total) on {2} threads", slowerPerRun, slowerTotal, threads);
+                var pctLessActiveTime = Math.Round((serial.Sum() - deduped) / serial.Sum() * 100, 1);
+
+                var degree = (double)Math.Min(threads, Environment.ProcessorCount);
+                var pctIdealActive = Math.Round((serial.Sum() - (serial.Sum() / degree)) / serial.Sum() * 100,1);
+
+                var pctOpSlower = Math.Round((parallelDurations.Average() - serial.Average()) / serial.Average() * 100, 1);
+
+                Console.WriteLine("{0}% less active time ({3}% ideal) w/ {1} threads {2} vcores. Ops {4}% longer", pctLessActiveTime, threads, Environment.ProcessorCount, pctIdealActive, pctOpSlower);
+
+                Console.WriteLine();
             }
 
         }
