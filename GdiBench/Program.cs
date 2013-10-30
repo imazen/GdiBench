@@ -102,7 +102,9 @@ namespace GdiBench
                            readStream.SleepMsPerReadCall = 50;
                            readStream.BytesRead = 0;
 
-                           using (var canvas = new Bitmap(500, 500))
+                           var dest = MathUtil.ScaleWithin(bit.Width, bit.Height, 500, 500);
+
+                           using (var canvas = new Bitmap(dest.Item1, dest.Item2))
                            using (var g = Graphics.FromImage(canvas))
                            using (var attrs = new ImageAttributes() { })
                            {
@@ -116,7 +118,7 @@ namespace GdiBench
 
                                time.MarkStart();
 
-                               g.DrawImage(bit, new Point[] { new Point(0, 0), new Point(500, 0), new Point(0, 500) },
+                               g.DrawImage(bit, new Point[] { new Point(0, 0), new Point(dest.Item1, 0), new Point(0, dest.Item2) },
                                    new Rectangle(0, 0, bit.Width, bit.Height), GraphicsUnit.Pixel, attrs);
                                time.MarkStop();
                                Debug.Assert(readStream.BytesRead == 0);
@@ -167,7 +169,7 @@ namespace GdiBench
                         var readStream = new MemoryStream((byte[])input);
                         var outStream = new MemoryStream(readStream.Capacity);
                         time.MarkStart();
-                        ImageBuilder.Current.Build(readStream, outStream, new Instructions("width=500&height=500&mode=stretch&format=jpg"));
+                        ImageBuilder.Current.Build(readStream, outStream, new Instructions("maxwidth=500&maxheight=500&format=jpg"));
                         time.MarkStop();
 
                     }, bytes);
