@@ -7,10 +7,10 @@ using System.Threading;
 
 namespace GdiBench
 {
-    public class InstrumetedMemoryStream : MemoryStream 
+    public class InstrumentedMemoryStream : MemoryStream 
     {
 
-        public InstrumetedMemoryStream(byte[] buffer) : base(buffer) { }
+        public InstrumentedMemoryStream(byte[] buffer) : base(buffer) { BytesRead = 0; }
 
         public long BytesRead { get; set; }
 
