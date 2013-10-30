@@ -126,6 +126,39 @@ namespace GdiBench
                    }, bytes);
                }));
 
+            resizeBenchmarks.Add(new Tuple<string, Action>("Measure Direct2D DrawImage jpg->500px->jpg",
+               () =>
+               {
+                   Timing.MeasureOperation(delegate(object input, TimeSegment time)
+                   {
+                       var readStream = new MemoryStream((byte[])input);
+                       var outStream = Direct2D.Resize(readStream, 500, 500, () => time.MarkStart(), () => time.MarkStop());
+                   }, bytes);
+               }));
+
+            endecodingBenchmarks.Add(new Tuple<string, Action>("Measure Direct2D load jpeg",
+               () =>
+               {
+                   Timing.MeasureOperation(delegate(object input, TimeSegment time)
+                   {
+                       var readStream = new MemoryStream((byte[])input);
+                       time.MarkStart();
+                       var outStream = Direct2D.Resize(readStream, 500, 500, () => time.MarkStop(), () => { });
+                   }, bytes);
+               }));
+
+            resizeBenchmarks.Add(new Tuple<string, Action>("Measure Direct2D decode-resize-encode jpg->500px->jpg",
+              () =>
+              {
+                  Timing.MeasureOperation(delegate(object input, TimeSegment time)
+                  {
+                      var readStream = new MemoryStream((byte[])input);
+                      time.MarkStart();
+                      var outStream = Direct2D.Resize(readStream, 500, 500, () => { }, () => { });
+                      time.MarkStop();
+                  }, bytes);
+              }));
+
             resizeBenchmarks.Add(new Tuple<string, Action>("Measure ImageResizer jpg->500px->jpg",
                () =>
                {
@@ -146,7 +179,7 @@ namespace GdiBench
 
             List<Tuple<string, Action>> toRun = null;
 
-            Console.WriteLine("(a) to run all, (d) to run decode/encode tests, (r) to run resize tests, (i) for individual");
+            Console.WriteLine("Benchmark (a) all, (e) encode/decode, (r) resizing, or select (i)ndividually");
             var key = Console.ReadKey(true).Key;
             if (key == ConsoleKey.A) toRun = all;
             else if (key == ConsoleKey.E) toRun = endecodingBenchmarks;
@@ -184,6 +217,27 @@ namespace GdiBench
             foreach (ImageCodecInfo ici in info)
                 if (ici.MimeType.Equals(mimeType, StringComparison.OrdinalIgnoreCase)) return ici;
             return null;
+        }
+    }
+
+    public static class MathUtil
+    {
+
+        public static Tuple<int,int> ScaleWithin(int width, int height, int maxwidth, int maxheight){
+            var woh = (double)width / (double)height;
+            var outWoh = (double)maxwidth / (double)maxheight;
+
+            int newHeight = maxheight;
+            int newWidth = maxwidth;
+            if (outWoh > woh)
+            {
+                newWidth = (int)System.Math.Ceiling((double)maxheight * outWoh);
+            }
+            else
+            {
+                newHeight = (int)System.Math.Ceiling((double)maxwidth / outWoh);
+            }
+            return new Tuple<int, int>(newWidth, newHeight);
         }
     }
 }
